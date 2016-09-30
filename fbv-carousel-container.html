@@ -1,0 +1,458 @@
+<link rel="import" href="../polymer/polymer.html">
+<link rel="import" href="../iron-flex-layout/iron-flex-layout-classes.html">
+<!--
+`fbv-carousel-container`
+Carousel generic to roll around items when needed
+
+@demo demo/index.html
+-->
+<dom-module id="fbv-carousel-container">
+	<template>
+		<style include="iron-flex iron-flex-alignment"></style>
+
+		<style>
+		:host {
+			display: block;
+		}
+
+		.container {
+			position: relative;
+			width: 100%;
+		}
+
+		.visor {
+			width: 1200px;
+			margin: 0 auto;
+			box-sizing: border-box;
+			position: relative;
+			overflow: hidden;
+		}
+
+		.carousel-active {
+			visibility: visible;
+		}
+
+		.content {
+			white-space: nowrap;
+			display: block;
+			font-size: 0;
+			overflow: visible;
+			transition: transform 0.2s linear;
+		}
+
+		.centered {
+			text-align: center;
+		}
+
+		.chevron {
+			--iron-icon-height: 64px;
+			--iron-icon-width: 64px;
+			--iron-icon-fill-color: white;
+		}
+
+		.controls {
+			height: 100%;
+			position: absolute;
+			top: 0;
+			width: calc(100% - 200px);
+			margin: 0 100px;
+			padding-bottom: 50px;
+			box-sizing: content-box;
+			display: none;
+			z-index: 0;
+		}
+
+		.controls.carousel-active {
+			display: block;
+		}
+
+		.controls .control {
+			position: absolute;
+			top: 0;
+			bottom: 0;
+			width: 30px;
+		}
+
+		.controls .control.right-control {
+			right: 0;
+			margin-right: -30px;
+		}
+
+		.controls .control.left-control {
+			left: 0;
+			margin-left: -30px;
+		}
+
+		.controls .control .arrow {
+			height: 24px;
+			width: 24px;
+			border-top: 1px solid white;
+			border-left: 1px solid white;
+			display: block;
+			padding: 0;
+			margin: -12px;
+			box-sizing: border-box;
+			position: absolute;
+			top: 40%;
+			cursor: pointer;
+		}
+
+		.controls .control .left-arrow {
+			transform: rotate(-45deg);
+			right: 12px;
+		}
+
+		.controls .control .right-arrow {
+			transform: rotate(135deg);
+			left: 12px;
+		}
+
+		.controls .bottom-controls {
+			height: 30px;
+			position: absolute;
+			bottom: 0;
+			text-align: center;
+			width: 100%;
+			display: none;
+		}
+
+		.circle-control {
+			display: inline-block;
+			box-sizing: border-box;
+			border-radius: 50%;
+			margin: 0 15px;
+			height: 20px;
+			width: 20px;
+			cursor: pointer;
+		}
+
+		@media (max-width: 1399px) {
+			.visor {
+				width: calc(100% - 200px);
+				margin: 0 100px;
+			}
+		}
+
+		/*Tablet Styles*/
+		@media (max-width: 1199px) {
+			.visor {
+				width: calc(100% - 100px);
+				margin: 0 50px;
+			}
+
+			.controls {
+				width: calc(100% - 100px);
+				margin: 0 50px;
+			}
+		}
+		/*Mobile Styles*/
+		@media (max-width: 719px) {
+			.visor {
+				width: calc(100% - 80px);
+				margin: 0 40px;
+			}
+
+			.controls {
+				width: calc(100% - 80px);
+				margin: 0 40px;
+			}
+
+			.controls .bottom-controls {
+				display: block;
+			}
+		}
+		</style>
+		<!-- Carousel container -->
+		<div id="main-container" class="container">
+			<!-- Controls block -->
+			<div id="visor-controls" class="controls">
+				<div class="control left-control" on-tap="_carouselGoLeft">
+					<div class="arrow left-arrow"></div>
+				</div>
+				<div class="control right-control" on-tap="_carouselGoRight">
+					<div class="arrow right-arrow"></div>
+				</div>
+				<div id="bullets-container" class="bottom-controls">
+					<!-- 
+					Bullet span structure example:
+					<span class="circle-control selected"></span>
+					<span class="circle-control"></span>
+					-->
+				</div>
+			</div>
+			<!-- Vision block -->
+			<div id="visor-container" class="visor">
+				<div id="content-wrapper" class="content">
+					<content></content>
+				</div>
+			</div>
+		</div>
+
+	</template>
+	<script>
+	Polymer({
+
+		is: 'fbv-carousel-container',
+
+		properties: {
+			/**
+			 * Maximum number of visible items
+			 * @type {Number}
+			 */
+			visibleItems: {
+				type: Number,
+				value: 0,
+				observer: '_checkMaxVisibleItems'
+			},
+
+			/**
+			 * Carousel state: active or inactive
+			 * @type {Boolean}
+			 */
+			carouselActive: {
+				type: Boolean,
+				value: false,
+				observer: '_checkCarouselToggle'
+			},
+
+			/**
+			 * Array of carousel DOM Nodes to be shown
+			 * @type {Array}
+			 */
+			carouselItems: {
+				type: Array,
+				value: function(){
+					return [];
+				}
+			},
+
+			/**
+			 * Carousel state parameters: position, item proportion, ...
+			 * @type {Object}
+			 */
+			carouselStateParams: {
+				type: Object,
+				value: function(){
+					return {};
+				}
+			}
+		},
+
+		observers: [
+			'_carouselItemsDefined(carouselItems.*)'
+		],
+
+		/**
+		 * Ready element lifecycle. Sets DOM Node observers and event listeners
+		 * to control swipe events.
+		 * @return {[type]} [description]
+		 */
+		ready: function(){
+			// Set Observer to watch DOM Node creation inside the <content> node
+			this._itemObserver = Polymer.dom(this.$['content-wrapper']).observeNodes(function(info){
+				if((info.addedNodes[0] && info.addedNodes[0].nodeName !== '#text') ||
+					(info.removedNodes[0] && info.removedNodes[0].nodeName !== '#text')) {
+					var children = Polymer.dom(this.$['content-wrapper']).getEffectiveChildNodes();
+					this.carouselItems = children.filter(function(item){
+						if(item.nodeName !== '#text' && item.nodeName !== 'TEMPLATE'){
+							return true;
+						}
+						return false;
+					});
+				}
+			}.bind(this));
+			
+			// Set Swipe event type
+			var dragEventDown = 'mousedown';
+			var dragEventUp = 'mouseup';
+			if(this._checkDevice()){
+				dragEventDown = 'touchstart';
+				dragEventUp = 'touchend';
+			}
+			// Init swipe event listeners
+			this.$['main-container'].addEventListener(dragEventDown, function(e){
+				var xPos = e.changedTouches ? e.changedTouches[0].screenX : e.screenX;
+				this.swipeStartPos = xPos;
+			}.bind(this));
+			this.$['main-container'].addEventListener(dragEventUp, function(e){
+				var threshold = 30; // in pixels
+				var xPos = e.changedTouches ? e.changedTouches[0].screenX : e.screenX;
+				if(xPos < this.swipeStartPos - threshold){
+					this._carouselGoRight();
+				} else if(xPos > this.swipeStartPos + threshold){
+					this._carouselGoLeft();
+				}
+			}.bind(this));
+		},
+
+		/**
+		 * Called on Maximum Visible Items change
+		 * @param  {Number} maxItems Maximum number of items than can be shown at once
+		 */
+		_checkMaxVisibleItems: function(maxItems){
+			this._resetCarousel();
+			if(this.carouselItems && this.carouselItems.length){
+				this.carouselActive = (this.carouselItems.length > this.visibleItems) ? true : false;
+				if(this.carouselActive){
+					this._createBullets();
+					this._setCarouselParams();
+				}
+			}
+		},
+
+		/**
+		 * Verify if carousel should be shown
+		 * @param  {Boolean} state Carousel state
+		 */
+		_checkCarouselToggle: function(state){
+			var content = this.$['content-wrapper'];
+			var visorControls = this.$['visor-controls'];
+			if (!state) {
+				content.className += ' centered';
+				visorControls.className = visorControls.className.replace(' carousel-active', '');
+			} else {
+				content.className = content.className.replace(' centered', '');
+				visorControls.className += ' carousel-active';
+			}
+		},
+
+		/**
+		 * Called on Carousel Item definition or change, allowing for a dynamic ammount
+		 * @param  {Object} changeRecord
+		 */
+		_carouselItemsDefined: function(changeRecord){
+			this._resetCarousel();
+			var itemsLength = changeRecord.base.length;
+			if (itemsLength) {
+				this.carouselActive = (itemsLength > this.visibleItems) ? true : false;
+				if(this.carouselActive){
+					this._createBullets();
+					this._setCarouselParams();
+				}
+			}
+		},
+
+		/**
+		 * Initialize carousel bullets
+		 */
+		_createBullets: function(){
+			var container = this.$['bullets-container'];
+			while (container.firstChild) {
+				container.removeChild(container.firstChild);
+			}
+			this.carouselItems.forEach(function(item, index){
+				var span = document.createElement('span');
+				span.className = 'circle-control style-scope fbv-carousel-container';
+				span['data-position'] = index;
+				span.addEventListener('click', function(e){
+					this._goToBulletPosition(e.target["data-position"]);
+					this._setSelectedBulletStyles(e.target);
+				}.bind(this));
+				container.appendChild(span);
+			}.bind(this));
+			container.firstChild.className += ' selected';
+		},
+
+		/**
+		 * View carousel item on bullet selection
+		 * @param  {Number} pos Bullet index selected
+		 */
+		_goToBulletPosition: function(pos){
+			var content = this.$['content-wrapper'];
+			content.style.transform = 'translateX(-' + pos*this.carouselStateParams.proportion + '%)';
+			this._setCarouselParamsOnBullet(pos);
+		},
+
+		/**
+		 * Set all bullet styles according to which one has been selected
+		 * @param {Node} target DOM Node selected
+		 */
+		_setSelectedBulletStyles: function(target){
+			for (var i = 0; i < target.parentNode.children.length; i++) {
+				target.parentNode.children[i].className = target.parentNode.children[i].className.replace(' selected', '');
+			}
+			target.className += ' selected';
+		},
+
+		/**
+		 * Set Carousel Parameters when a bullet has been pressed
+		 * @param {Number} pos Bullet index selected
+		 */
+		_setCarouselParamsOnBullet: function(pos){
+			this.carouselStateParams.left = pos;
+			this.carouselStateParams.right = this.carouselItems.length - pos - 1;
+		},
+
+		/**
+		 * Reset Bullet styles when carousel is navigated with swipe or arrows
+		 */
+		_shiftBullets: function(){
+			var containter = this.$['bullets-container'];
+			for (var i = 0; i < containter.children.length; i++) {
+				if (containter.children[i]['data-position'] === this.carouselStateParams.left) {
+					this._setSelectedBulletStyles(containter.children[i]);
+					break;
+				}
+			}
+		},
+
+		/**
+		 * Control Carousel going left
+		 */
+		_carouselGoLeft: function(){
+			if (this.carouselStateParams.left > 0) {
+				var jumpUnits = (this.carouselStateParams.left >= this.visibleItems) ? this.visibleItems : this.carouselStateParams.left;
+				var content = this.$['content-wrapper'];
+				content.style.transform = 'translateX(-' + (this.carouselStateParams.left -jumpUnits)*this.carouselStateParams.proportion + '%)';
+				this.carouselStateParams.right += jumpUnits;
+				this.carouselStateParams.left -= jumpUnits;
+				this._shiftBullets();
+			}
+		},
+
+		/**
+		 * Control Carousel going right
+		 */
+		_carouselGoRight: function(){
+			if (this.carouselStateParams.right > 0) {
+				var jumpUnits = (this.carouselStateParams.right >= this.visibleItems) ? this.visibleItems : this.carouselStateParams.right;
+				var content = this.$['content-wrapper'];
+				content.style.transform = 'translateX(-' + (jumpUnits + this.carouselStateParams.left)*this.carouselStateParams.proportion + '%)';
+				this.carouselStateParams.left += jumpUnits;
+				this.carouselStateParams.right -= jumpUnits;
+				this._shiftBullets();
+			}
+		},
+
+		/**
+		 * Initialize Carousel Parameters
+		 */
+		_setCarouselParams: function(){
+			this._resetCarousel();
+			var initState = {
+				left: 0,
+				right: this.carouselItems.length - this.visibleItems,
+				proportion: 100 / this.visibleItems
+			};
+			this.set('carouselStateParams', initState);
+		},
+
+		/**
+		 * Reset carousel to position 0
+		 */
+		_resetCarousel: function(){
+			this.$['content-wrapper'].style.transform = 'translateX(0%)';
+		},
+
+		/**
+		 * Check whether the user is on a mobile device or not
+		 */
+		_checkDevice: function(){
+			var check = false;
+			(function(a){if(/(android|bb\d+|meego).+mobile|avantgo|bada\/|blackberry|blazer|compal|elaine|fennec|hiptop|iemobile|ip(hone|od)|iris|kindle|lge |maemo|midp|mmp|mobile.+firefox|netfront|opera m(ob|in)i|palm( os)?|phone|p(ixi|re)\/|plucker|pocket|psp|series(4|6)0|symbian|treo|up\.(browser|link)|vodafone|wap|windows ce|xda|xiino|android|ipad|playbook|silk/i.test(a)||/1207|6310|6590|3gso|4thp|50[1-6]i|770s|802s|a wa|abac|ac(er|oo|s\-)|ai(ko|rn)|al(av|ca|co)|amoi|an(ex|ny|yw)|aptu|ar(ch|go)|as(te|us)|attw|au(di|\-m|r |s )|avan|be(ck|ll|nq)|bi(lb|rd)|bl(ac|az)|br(e|v)w|bumb|bw\-(n|u)|c55\/|capi|ccwa|cdm\-|cell|chtm|cldc|cmd\-|co(mp|nd)|craw|da(it|ll|ng)|dbte|dc\-s|devi|dica|dmob|do(c|p)o|ds(12|\-d)|el(49|ai)|em(l2|ul)|er(ic|k0)|esl8|ez([4-7]0|os|wa|ze)|fetc|fly(\-|_)|g1 u|g560|gene|gf\-5|g\-mo|go(\.w|od)|gr(ad|un)|haie|hcit|hd\-(m|p|t)|hei\-|hi(pt|ta)|hp( i|ip)|hs\-c|ht(c(\-| |_|a|g|p|s|t)|tp)|hu(aw|tc)|i\-(20|go|ma)|i230|iac( |\-|\/)|ibro|idea|ig01|ikom|im1k|inno|ipaq|iris|ja(t|v)a|jbro|jemu|jigs|kddi|keji|kgt( |\/)|klon|kpt |kwc\-|kyo(c|k)|le(no|xi)|lg( g|\/(k|l|u)|50|54|\-[a-w])|libw|lynx|m1\-w|m3ga|m50\/|ma(te|ui|xo)|mc(01|21|ca)|m\-cr|me(rc|ri)|mi(o8|oa|ts)|mmef|mo(01|02|bi|de|do|t(\-| |o|v)|zz)|mt(50|p1|v )|mwbp|mywa|n10[0-2]|n20[2-3]|n30(0|2)|n50(0|2|5)|n7(0(0|1)|10)|ne((c|m)\-|on|tf|wf|wg|wt)|nok(6|i)|nzph|o2im|op(ti|wv)|oran|owg1|p800|pan(a|d|t)|pdxg|pg(13|\-([1-8]|c))|phil|pire|pl(ay|uc)|pn\-2|po(ck|rt|se)|prox|psio|pt\-g|qa\-a|qc(07|12|21|32|60|\-[2-7]|i\-)|qtek|r380|r600|raks|rim9|ro(ve|zo)|s55\/|sa(ge|ma|mm|ms|ny|va)|sc(01|h\-|oo|p\-)|sdk\/|se(c(\-|0|1)|47|mc|nd|ri)|sgh\-|shar|sie(\-|m)|sk\-0|sl(45|id)|sm(al|ar|b3|it|t5)|so(ft|ny)|sp(01|h\-|v\-|v )|sy(01|mb)|t2(18|50)|t6(00|10|18)|ta(gt|lk)|tcl\-|tdg\-|tel(i|m)|tim\-|t\-mo|to(pl|sh)|ts(70|m\-|m3|m5)|tx\-9|up(\.b|g1|si)|utst|v400|v750|veri|vi(rg|te)|vk(40|5[0-3]|\-v)|vm40|voda|vulc|vx(52|53|60|61|70|80|81|83|85|98)|w3c(\-| )|webc|whit|wi(g |nc|nw)|wmlb|wonu|x700|yas\-|your|zeto|zte\-/i.test(a.substr(0,4)))check = true})(navigator.userAgent||navigator.vendor||window.opera);
+			return check;
+		}
+
+	});
+	</script>
+</dom-module>
