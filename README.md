@@ -1,4 +1,4 @@
-# \<amkt-generic-carousel\>
+# \<fbv-carousel-container\>
 
 Carousel generic to roll around items when needed
 
